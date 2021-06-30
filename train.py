@@ -114,12 +114,35 @@ if __name__ == '__main__':
             #dataloader的长度就是有多少batch
             batches_done = len(dataloader) * epoch + batch_i
             
-            #tensor不能反向传播，variable可以反向传播  nn.module的输入为Variable
+            #imgs        torch.Size([4, 3, 448, 448])
+            #targets     torch.Size([26, 5])
+            #tensor不能反向传播，variable可以反向传播  nn.module的输入为Variable  varible and tensor 都是torch.FloatTensor
             imgs = torch.autograd.Variable(imgs.to(device))
             targets = torch.autograd.Variable(targets.to(device), requires_grad=False)
 #            print (imgs.shape)
 #            print ('targets',targets.shape)
+            
+            #loss   tensor(231.5121, grad_fn=<AddBackward0>)
+            #outputs   torch.Size([4, 16128, 85]
             loss, outputs = model(imgs, targets)
+            loss.backward()
+            
+            if batches_done % args.gradient_accumulations:
+                # Accumulates gradient before each step
+                optimizer.step()
+                optimizer.zero_grad()
+                
+            # ----------------
+            #   Log progress
+            # ----------------
+            
+            #---- [Epoch 0/1, Batch 0/15] ----
+            log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, args.epochs, batch_i, len(dataloader))
+            
+            metric_table = [["Metrics", *[f"YOLO Layer {i}" for i in range(len(model.yolo_layers))]]]
+            
+            
+#            print(metric_table)
             
 #            sys.exit()
             

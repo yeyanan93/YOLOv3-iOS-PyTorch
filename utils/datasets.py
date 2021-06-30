@@ -110,7 +110,8 @@ class ListDataset(Dataset):
         boxes[:,2] = (pad[2] + y_box) / h_padded
         boxes[:,3] = w_box / w_padded
         boxes[:,4] = h_box / h_padded
-        targets = boxes
+        targets = torch.zeros((len(boxes), 6))
+        targets[:, 1:] = boxes
         #由于pad，需要转换下框的位置
         
 #        print(img.shape)
@@ -194,7 +195,6 @@ class ListDataset(Dataset):
         for i, boxes in enumerate(targets):
             boxes[:, 0] = i
         #torch.cat((x, x), 0)是按行来拼接targets里面的tensor
-        #这里留一个疑点，框的种类被消除了
         targets = torch.cat(targets, 0)
         # Selects new image size every tenth batch
         if self.multiscale and self.batch_count % 10 == 0:
