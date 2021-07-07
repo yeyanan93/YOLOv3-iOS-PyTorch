@@ -262,10 +262,54 @@ class YOLOLayer(nn.Module):
             # Metrics
             #class_mask[obj_mask]       torch.Size([26])  
             cls_acc = 100 * class_mask[obj_mask].mean()#预测类别的准确率
-            conf_obj = pred_conf[obj_mask].mean()
             
-            print(class_mask[obj_mask].shape)
-            sys.exit()
+            """
+            print(pred_conf[obj_mask])
+            print(pred_conf[obj_mask].shape)
+            print(pred_conf[obj_mask].mean())
+            
+            tensor([0.4828, 0.4164, 0.4480, 0.5860, 0.5229, 0.5890, 0.5784, 0.4064, 0.5730,
+                    0.5350, 0.5454, 0.5212, 0.5920, 0.5542, 0.5599, 0.6638, 0.2707, 0.6084,
+                    0.6987, 0.5344, 0.5980, 0.5667, 0.5686, 0.6633, 0.4066],
+                    grad_fn=<IndexBackward>)
+            torch.Size([25])
+            tensor(0.5396, grad_fn=<MeanBackward0>)
+            """
+            conf_obj = pred_conf[obj_mask].mean()
+            conf_noobj = pred_conf[noobj_mask].mean()
+            
+            #conf50   torch.Size([4, 3, 11, 11])
+            #pred_conf > 0.5 为1.   小于为0.
+            conf50 = (pred_conf > 0.5).float()
+            #iou50   torch.Size([4, 3, 15, 15])
+            iou50 = (iou_scores > 0.5).float()
+            iou75 = (iou_scores > 0.75).float()
+            
+            #detected_mask    torch.Size([4, 3, 13, 13])
+            detected_mask = conf50 * class_mask * tconf
+            
+            
+            precision = torch.sum(iou50 * detected_mask) / (conf50.sum() + 1e-16)
+            recall50 = torch.sum(iou50 * detected_mask) / (obj_mask.sum() + 1e-16)
+            recall75 = torch.sum(iou75 * detected_mask) / (obj_mask.sum() + 1e-16)
+            
+            
+            self.metrics = {
+                "loss": to_cpu(total_loss).item(),
+                "x": to_cpu(loss_x).item(),
+                "y": to_cpu(loss_y).item(),
+                "w": to_cpu(loss_w).item(),
+                "h": to_cpu(loss_h).item(),
+                "conf": to_cpu(loss_conf).item(),
+                "cls": to_cpu(loss_cls).item(),
+                "cls_acc": to_cpu(cls_acc).item(),
+                "recall50": to_cpu(recall50).item(),
+                "recall75": to_cpu(recall75).item(),
+                "precision": to_cpu(precision).item(),
+                "conf_obj": to_cpu(conf_obj).item(),
+                "conf_noobj": to_cpu(conf_noobj).item(),
+                "grid_size": grid_size,
+            }
             
             return output, total_loss
         
@@ -299,6 +343,18 @@ class Darknet(nn.Module):
         self.module_defs = parse_model_config(config_path)
         self.hyperparams, self.module_list = create_modules(self.module_defs)
         #hasattr() 函数用于判断对象是否包含对应的属性。有就返回true  没有就false
+        """
+        [YOLOLayer(
+          (mse_loss): MSELoss()
+          (bce_loss): BCELoss()
+          ), YOLOLayer(
+        (mse_loss): MSELoss()
+        (bce_loss): BCELoss()
+        ), YOLOLayer(
+                (mse_loss): MSELoss()
+                (bce_loss): BCELoss()
+                )]
+        """
         self.yolo_layers = [layer[0] for layer in self.module_list if hasattr(layer[0], "metrics")]
 
         

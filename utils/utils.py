@@ -7,6 +7,7 @@ Created on Tue May 11 23:19:02 2021
 """
 
 import torch
+import numpy as np
 import sys
 
 def to_cpu(tensor):
@@ -28,6 +29,169 @@ def weights_init_normal(m):
         torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
         torch.nn.init.constant_(m.bias.data, 0.0)
         
+def xywh2xyxy(x):
+    #tensor.new  创建一个新的Tensor，该Tensor的type和device都和原有Tensor一致，且无内容
+    y = x.new(x.shape)    
+    y[..., 0] = x[..., 0] - x[..., 2] / 2
+    y[..., 1] = x[..., 1] - x[..., 3] / 2
+    y[..., 2] = x[..., 0] + x[..., 2] / 2
+    y[..., 3] = x[..., 1] + x[..., 3] / 2
+    #此函数就是把xywh转化成xyxy
+    return y
+def get_batch_statistics(outputs, targets, iou_threshold):
+    
+    batch_metrics = []
+    ##print(len(output))   8
+    for sample_i in range(len(outputs)):
+        
+        if outputs[sample_i] is None:
+            continue
+        
+        #output    torch.Size([3921, 7])
+        output = outputs[sample_i]
+        pred_boxes = output[:, :4]
+        pred_scores = output[:, 4]
+        pred_labels = output[:, -1]
+                
+        #true_positives     numpy.ndarray
+        #len(true_positives)    4823
+        true_positives = np.zeros(pred_boxes.shape[0])
+        
+        
+        #把第sample_i照片的targets选出来
+        annotations = targets[targets[:, 0] == sample_i][:, 1:]
+        
+        #target_labels 
+        target_labels = annotations[:, 0] if len(annotations) else []
+        if len(annotations):
+            detected_boxes = []
+            target_boxes = annotations[:, 1:]
+            
+            for pred_i, (pred_box, pred_label) in enumerate(zip(pred_boxes, pred_labels)):
+                
+                if len(detected_boxes) == len(annotations):
+                    break
+                
+                if pred_label not in target_labels:
+                    continue
+                iou, box_index = bbox_iou(pred_box.unsqueeze(0), target_boxes).max(0)
+        
+        print(len(true_positives))
+        sys.exit()
+    
+    
+    
+    return batch_metrics
+
+def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
+    
+    """
+    Removes detections with lower object confidence score than 'conf_thres' and performs
+    Non-Maximum Suppression to further filter detections.
+    Returns detections with shape:
+        (x1, y1, x2, y2, object_conf, class_score, class_pred)
+    """
+    #torch.Size([8, 6300, 85])
+    prediction[..., :4] = xywh2xyxy(prediction[..., :4])
+    
+    #len tensor 返回Tensor第一位的维度
+    #[None, None, None, None, None, None, None, None]
+    
+    #
+    output = [None for _ in range(len(prediction))]
+    for image_i, image_pred in enumerate(prediction):
+        
+        #image_pred  torch.Size([7623, 85])
+        #image_pred只是一张图片的预测，所以从三维变成二维
+        image_pred = image_pred[image_pred[:, 4] >= conf_thres]
+        #torch.Size([2033, 85])        
+        
+        if not image_pred.size(0):
+            continue
+        
+        
+        
+        #image_pred[:, 5:]    torch.Size([7517, 80])
+        #torch.max(a,1)返回每一行中最大值的那个元素，且返回其索引（返回最大元素在这一行的列索引）
+        """
+        image_pred[:, 5:].max(1)
+        torch.return_types.max(
+        values=tensor([0.6407, 0.6414, 0.6344,  ..., 0.5431, 0.5430, 0.5395]),
+        indices=tensor([53, 53, 64,  ..., 43, 57, 12]))
+        """
+        #image_pred[:, 5:].max(1)[0]  tensor([0.6207, 0.6044, 0.6045,  ..., 0.5438, 0.5512, 0.5494])
+        
+        # Object confidence times class confidence
+        #score   torch.Size([8791])
+        score = image_pred[:, 4] * image_pred[:, 5:].max(1)[0]
+        
+        #argsort()   Returns the indices that sort a tensor along a given dimension in ascending order by value
+        #默认是升序
+        #torch.Size([5277, 85])
+        #此语句是对image_pred进行排序处理，把最大值放到最前面
+        image_pred = image_pred[(-score).argsort()]
+        
+        #keepdim whether the output tensor has dim retained or not. Default: False.
+        """
+        torch.return_types.max(
+                values=tensor([[0.6757],
+                               [0.6727],
+                               [0.6227],
+                               ...,
+                               [0.5392],
+                               [0.5382],
+                               [0.5392]]),
+        indices=tensor([[20],
+                        [20],
+                        [26],
+                        ...,
+                        [33],
+                        [76],
+                        [33]]))
+        """
+        class_confs, class_preds = image_pred[:, 5:].max(1, keepdim=True)
+        #image_pred[:, :5]     torch.Size([6423, 5])
+        #class_confs.float()   torch.Size([6423, 1])
+        #class_preds.float()   torch.Size([6423, 1])
+        #detections            torch.Size([6423, 7])
+        detections = torch.cat((image_pred[:, :5], class_confs.float(), class_preds.float()), 1)
+        
+        # Perform non-maximum suppression
+        keep_boxes = []
+        while detections.shape[0]:
+            #detections[0, :4]    torch.Size([4])
+            #detections[0, :4].unsqueeze(0)    torch.Size([1, 4])
+            #bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4])  torch.Size([5382])
+            #large_overlap      tensor([False, False, False,  ..., False, False, False])
+            
+            large_overlap = bbox_iou(detections[0, :4].unsqueeze(0), detections[:, :4]) > nms_thres
+            
+            #label_match  tensor([ True,  True,  True,  ..., False, False, False])
+            label_match = detections[0, -1] == detections[:, -1]
+            
+            #&     The & symbol is a bitwise AND operator.  两个都是true 就是 true
+            invalid = large_overlap & label_match
+            #weights    torch.Size([0, 1])
+            weights = detections[invalid, 4:5]
+            
+            # torch.sum(input, dim, out=None) dim：求和的方向。若input为2维tensor矩阵，dim=0，对列求和；dim=1，对行求和
+            # Merge overlapping bboxes by order of confidence
+            #对所有预测差不多的框，根据列的第五  做平均处理
+            detections[0, :4] = (weights * detections[invalid, :4]).sum(0) / weights.sum()
+            keep_boxes += [detections[0]]
+            #把之前用过的框都去掉
+            detections = detections[~invalid]
+            
+        #keep_boxes    [tensor([-40.1647, -26.1947,  74.3477,  59.3861,   0.5597,   0.6293,  66.0000]),
+        if keep_boxes:
+            #image_i   就是第几张照片
+            #torch.stack(keep_boxes).shape    torch.Size([310, 7])
+            output[image_i] = torch.stack(keep_boxes)
+            
+    #print(len(output))   8
+    #print(output[0].shape)   torch.Size([3897, 7])
+    return output
+       
 def bbox_wh_iou(wh1, wh2):
     
     wh2 = wh2.t()
@@ -60,8 +224,8 @@ def bbox_iou(box1, box2, x1y1x2y2=True):
         
     else:
         # Get the coordinates of bounding boxes
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
+        box1_x1, box1_y1, box1_x2, box1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
+        box2_x1, box2_y1, box2_x2, box2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
         
     x1 = torch.max(box1_x1,box2_x1)
     y1 = torch.max(box1_y1,box2_y1)

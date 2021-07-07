@@ -9,6 +9,7 @@ from models import *
 from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
+from test_data import evaluate
 
 import os
 import time
@@ -139,12 +140,48 @@ if __name__ == '__main__':
             #---- [Epoch 0/1, Batch 0/15] ----
             log_str = "\n---- [Epoch %d/%d, Batch %d/%d] ----\n" % (epoch, args.epochs, batch_i, len(dataloader))
             
+            #metric_table    [['Metrics', 'YOLO Layer 0', 'YOLO Layer 1', 'YOLO Layer 2']]
+            #列表前面加星号作用是将列表解开成多个独立的参数，传入函数。
             metric_table = [["Metrics", *[f"YOLO Layer {i}" for i in range(len(model.yolo_layers))]]]
             
+            # Log metrics at each YOLO layer
             
-#            print(metric_table)
+            for i, metric in enumerate(metrics):
+                """
+                {'grid_size': '%.6f', 'loss': '%.6f', 'x': '%.6f', 'y': '%.6f', 
+                'w': '%.6f', 'h': '%.6f', 'conf': '%.6f', 'cls': '%.6f', 
+                'cls_acc': '%.6f', 'recall50': '%.6f', 'recall75': '%.6f', 
+                'precision': '%.6f', 'conf_obj': '%.6f', 'conf_noobj': '%.6f'}
+                """
+                formats = {m: "%.6f" for m in metrics}
+                formats["grid_size"] = "%2d"
+                formats["cls_acc"] = "%.2f%%"
+                
+                #['13', '26', '52']
+                #formats[metric] 是输出的格式   yolo.metrics.get(metric, 0)是具体的数值
+                #The get() method returns the value of the item with the specified key.
+                row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
+                #[['Metrics', 'YOLO Layer 0', 'YOLO Layer 1', 'YOLO Layer 2'], ['grid_size', '16', '32', '64']]
+                metric_table += [[metric, *row_metrics]]
+                
+            if epoch % args.evaluation_interval == 0:
+                print("\n---- Evaluating Model ----")
+                
+                precision = evaluate(
+                    model,
+                    path=valid_path,
+                    iou_thres=0.5,
+                    conf_thres=0.5,
+                    nms_thres=0.5,
+                    img_size=args.img_size,
+                    batch_size=8,
+                )
+                
+                
             
-#            sys.exit()
+            
+                        
+            
             
         
         
