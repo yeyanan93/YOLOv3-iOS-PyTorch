@@ -48,16 +48,30 @@ def evaluate(model, path, iou_thres, conf_thres, nms_thres, img_size, batch_size
             #conf_thres=0.5     nms_thres=0.5
             #print(len(output))   8
             #print(output[0].shape)   torch.Size([3897, 7])
+            print("non_max_suppression")
+#            if(batch_i==1){
+#                    print(outputs)
+#                    sys.exit()
+#                    }
+        
             outputs = non_max_suppression(outputs, conf_thres=conf_thres, nms_thres=nms_thres)
-            
+        """
+        [[array([0., 0., 0., ..., 0., 0., 0.]), tensor([0.5653, 0.5636, 0.5613,  ..., 0.5034, 0.5048, 0.5003]), 
+        """
+        print("get_batch_statistics")
         sample_metrics += get_batch_statistics(outputs, targets, iou_threshold=iou_thres)
+        print(sample_metrics)
         
-        sys.exit()
         
-        
-
+    #print(len(sample_metrics))  image 的个数
     
-    return 0
+    #print(true_positives)  [0. 0. 0. ... 0. 0. 0.]
+    
+    print(sample_metrics)
+    true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
+    precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+    
+    return precision, recall, AP, f1, ap_class
 
 
 

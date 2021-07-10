@@ -10,6 +10,7 @@ from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
 from test_data import evaluate
+from terminaltables import AsciiTable
 
 import os
 import time
@@ -120,18 +121,20 @@ if __name__ == '__main__':
             #tensor不能反向传播，variable可以反向传播  nn.module的输入为Variable  varible and tensor 都是torch.FloatTensor
             imgs = torch.autograd.Variable(imgs.to(device))
             targets = torch.autograd.Variable(targets.to(device), requires_grad=False)
-#            print (imgs.shape)
-#            print ('targets',targets.shape)
+            print(imgs.shape)
+            print('targets',targets.shape)
             
             #loss   tensor(231.5121, grad_fn=<AddBackward0>)
             #outputs   torch.Size([4, 16128, 85]
             loss, outputs = model(imgs, targets)
             loss.backward()
+            print("loss")
             
             if batches_done % args.gradient_accumulations:
                 # Accumulates gradient before each step
                 optimizer.step()
                 optimizer.zero_grad()
+                print("step")
                 
             # ----------------
             #   Log progress
@@ -163,11 +166,10 @@ if __name__ == '__main__':
                 row_metrics = [formats[metric] % yolo.metrics.get(metric, 0) for yolo in model.yolo_layers]
                 #[['Metrics', 'YOLO Layer 0', 'YOLO Layer 1', 'YOLO Layer 2'], ['grid_size', '16', '32', '64']]
                 metric_table += [[metric, *row_metrics]]
-                
-            if epoch % args.evaluation_interval == 0:
-                print("\n---- Evaluating Model ----")
-                
-                precision = evaluate(
+            print("evaluation_interval")
+        if epoch % args.evaluation_interval == 0:
+            print("\n---- Evaluating Model ----")
+            precision, recall, AP, f1, ap_class = evaluate(
                     model,
                     path=valid_path,
                     iou_thres=0.5,
@@ -175,7 +177,25 @@ if __name__ == '__main__':
                     nms_thres=0.5,
                     img_size=args.img_size,
                     batch_size=8,
-                )
+            )
+            print("evaluate")
+            evaluation_metrics = [
+                ("val_precision", precision.mean()),
+                ("val_recall", recall.mean()),
+                ("val_mAP", AP.mean()),
+                ("val_f1", f1.mean()),
+            ]
+            print("ap_table")
+            ap_table = [["Index", "Class name", "AP"]]
+            for i, c in enumerate(ap_class):
+                ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
+            print(AsciiTable(ap_table).table)
+            print(f"---- mAP {AP.mean()}")
+        if epoch % args.checkpoint_interval == 0:
+            
+            torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % epoch)
+                
+            
                 
                 
             
